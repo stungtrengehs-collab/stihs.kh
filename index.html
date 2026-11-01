@@ -62,6 +62,13 @@
             setDoc(ref, { matrices: timetableMatrices }).catch((err) => console.error("Timetables Sync error:", err));
         };
 
+        window.syncTelegramSettingsToCloud = function(config, classSettings) {
+            const refConfig = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'telegram_config');
+            const refClasses = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'telegram_classes');
+            setDoc(refConfig, config).catch((err) => console.error("TG Config Sync error:", err));
+            setDoc(refClasses, classSettings).catch((err) => console.error("TG Classes Sync error:", err));
+        };
+
         window.syncCredentialsToCloud = function(creds) {
             const credsRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'credentials');
             setDoc(credsRef, creds).catch((err) => console.error("Creds Sync error:", err));
@@ -134,6 +141,26 @@
                 if (typeof renderTimetable === 'function') renderTimetable();
             }
         }, (error) => console.error("Realtime Timetables Error:", error));
+
+        const tgConfigRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'telegram_config');
+        onSnapshot(tgConfigRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const tgConfig = docSnap.data();
+                localStorage.setItem('sys_tg_config', JSON.stringify(tgConfig));
+                if (document.getElementById('tg-bot-token')) document.getElementById('tg-bot-token').value = tgConfig.botToken || '';
+                if (document.getElementById('tg-chat-id')) document.getElementById('tg-chat-id').value = tgConfig.chatId || '';
+                if (document.getElementById('tg-enable')) document.getElementById('tg-enable').checked = !!tgConfig.enable;
+            }
+        }, (error) => console.error("TG Config Listen Error:", error));
+
+        const tgClassesRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'telegram_classes');
+        onSnapshot(tgClassesRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const classSettings = docSnap.data();
+                localStorage.setItem('sys_class_tg_settings', JSON.stringify(classSettings));
+                if (typeof renderClassTelegramInputs === 'function') renderClassTelegramInputs();
+            }
+        }, (error) => console.error("TG Classes Listen Error:", error));
 
         const credsRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'credentials');
         onSnapshot(credsRef, (docSnap) => {
@@ -1241,7 +1268,15 @@
         function renderDashboard() {
             const students = getData('sys_students', []);
             const logs = getData('sys_attendance', []);
-            const today = new Date().toISOString().split('T')[0];
+            
+            // Format today's date properly using local timezone
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const today = `${year}-${month}-${day}`;
+
+            // Filter today logs correctly
             const todayLogs = logs.filter(l => l.date === today);
 
             document.getElementById('stat-total-students').textContent = students.length;
@@ -1251,7 +1286,18 @@
 
             const dEl = document.getElementById('dashboard-date');
             if (dEl) dEl.textContent = `កាលបរិច្ឆេទ៖ ${today}`;
-            tbody.slice().reverse().forEach(l => {
+
+            const tbody = document.getElementById('dashboard-recent-logs');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+
+            if (todayLogs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-400 font-medium">ពុំទាន់មានកំណត់ត្រាវត្តមានសម្រាប់ថ្ងៃនេះនៅឡើយទេ</td></tr>`;
+                return;
+            }
+
+            // Display logs sorted from newest to oldest
+            todayLogs.slice().reverse().forEach(l => {
                 let badge = '';
                 if (l.type === 'teacher_in') {
                     badge = '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold text-xs">ចូលរៀន 🟢</span>';
@@ -1260,17 +1306,18 @@
                 } else {
                     badge = l.status === 'PRESENT' ? '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold text-xs">ទាន់ពេល ✅</span>' :
                             l.status === 'LATE' ? '<span class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded font-bold text-xs">មកយឺត 🟡</span>' :
-                            '<span class="px-2 py-0.5 bg-rose-100 text-rose-800 rounded font-bold text-xs">ច្បាប់/អវត្តមាន 🔴</span>';
+                            (l.status === 'PERMISSION' ? '<span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded font-bold text-xs">សុំច្បាប់ 🔵</span>' :
+                            '<span class="px-2 py-0.5 bg-rose-100 text-rose-800 rounded font-bold text-xs">អវត្តមាន 🔴</span>');
                 }
 
                 tbody.innerHTML += `
                     <tr>
-                        <td class="p-3 font-mono text-xs">${l.time}</td>
+                        <td class="p-3 font-mono text-xs font-bold">${l.time}</td>
                         <td class="p-3 font-semibold">${l.type === 'student' ? '👨‍🎓 សិស្ស' : (l.type === 'teacher_out' ? '🚪 គ្រូ (ចេញ)' : '👨‍🏫 គ្រូ (ចូល)')}</td>
                         <td class="p-3 font-bold text-slate-800">${l.name} (${l.personId})</td>
                         <td class="p-3">${l.sub || 'ថ្នាក់ទី ' + l.grade}</td>
                         <td class="p-3">${badge}</td>
-                        <td class="p-3 text-xs text-slate-500">${l.note || ''}</td>
+                        <td class="p-3 text-xs text-slate-500">${l.note || '---'}</td>
                     </tr>
                 `;
             });
@@ -1734,7 +1781,10 @@
             }
 
             const now = new Date();
-            const dateStr = now.toISOString().split('T')[0];
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const dateStr = `${year}-${month}-${day}`;
             const timeStr = now.toTimeString().split(' ')[0].substring(0,5);
             let status = forcedStatus || 'PRESENT';
 
@@ -1817,6 +1867,9 @@
             logs.push(log);
             saveData('sys_attendance', logs);
             if (typeof window.syncAttendanceToCloud === 'function') window.syncAttendanceToCloud(log);
+
+            // Re-render dashboard immediately after scan
+            renderDashboard();
 
             let statusBadgeTxt = '';
             if (scannerType === 'teacher_in') statusBadgeTxt = 'ចូលរៀន (Check-in) 🟢';
@@ -2510,8 +2563,15 @@
                 if (cls) classSettings[cls] = input.value.trim();
             });
 
-            saveData('sys_tg_config', { botToken, chatId, enable });
+            const tgConfig = { botToken, chatId, enable };
+
+            saveData('sys_tg_config', tgConfig);
             saveData('sys_class_tg_settings', classSettings);
+            
+            if (typeof window.syncTelegramSettingsToCloud === 'function') {
+                window.syncTelegramSettingsToCloud(tgConfig, classSettings);
+            }
+            
             showToast('រក្សាទុកការកំណត់ Telegram ជោគជ័យ!');
         }
 
