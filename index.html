@@ -147,9 +147,7 @@
             if (docSnap.exists()) {
                 const tgConfig = docSnap.data();
                 localStorage.setItem('sys_tg_config', JSON.stringify(tgConfig));
-                if (document.getElementById('tg-bot-token')) document.getElementById('tg-bot-token').value = tgConfig.botToken || '';
-                if (document.getElementById('tg-chat-id')) document.getElementById('tg-chat-id').value = tgConfig.chatId || '';
-                if (document.getElementById('tg-enable')) document.getElementById('tg-enable').checked = !!tgConfig.enable;
+                if (typeof populateTelegramInputs === 'function') populateTelegramInputs();
             }
         }, (error) => console.error("TG Config Listen Error:", error));
 
@@ -1240,28 +1238,9 @@
             if (tabId === 'payments') renderPayments();
             if (tabId === 'schedule') { renderSchedules(); renderTimetable(); }
             if (tabId === 'reports') generateReport();
-            if (tabId === 'telegram') renderClassTelegramInputs();
-        }
-
-        function populateGradeDropdowns() {
-            const students = getData('sys_students', []);
-            const grades = Array.from(new Set(students.map(s => s.grade))).sort();
-            ['filter-grade', 'report-grade'].forEach(id => {
-                const sel = document.getElementById(id);
-                if (!sel) return;
-                const curr = sel.value;
-                sel.innerHTML = '<option value="ALL">គ្រប់ថ្នាក់ទាំងអស់</option>';
-                grades.forEach(g => sel.innerHTML += `<option value="${g}">ថ្នាក់ទី ${g}</option>`);
-                sel.value = curr || 'ALL';
-            });
-            const schedSel = document.getElementById('schedule-class-select');
-            if (schedSel) {
-                const currSched = schedSel.value;
-                schedSel.innerHTML = '';
-                const defaultGrades = ['7A', '7B', '8A', '9A', '10A', '11A', '12A', '12B'];
-                const allGrades = Array.from(new Set([...defaultGrades, ...grades])).sort();
-                allGrades.forEach(g => schedSel.innerHTML += `<option value="${g}">ថ្នាក់ទី ${g}</option>`);
-                schedSel.value = currSched || '7A';
+            if (tabId === 'telegram') {
+                populateTelegramInputs();
+                renderClassTelegramInputs();
             }
         }
 
@@ -1625,40 +1604,6 @@
             saveData('sys_timetable_matrices', matrices);
             renderTimetable();
             showToast('បានលុបចន្លោះម៉ោងជោគជ័យ!');
-        }
-
-        function updateCellColor(selectEl) {
-            const val = selectEl.value;
-            const parentDiv = selectEl.closest('div');
-            if (!parentDiv) return;
-            const subjects = getData('sys_subjects', officialSampleSubjects);
-            const subObj = subjects.find(s => s.name === val);
-            parentDiv.style.backgroundColor = subObj && subObj.color ? subObj.color : '#ffffff';
-        }
-
-        function saveTimetableMatrix() {
-            const grade = document.getElementById('schedule-class-select')?.value || '7A';
-            const matrices = getData('sys_timetable_matrices', {});
-            const currentMatrix = {};
-
-            // Loop through all subject & teacher selects in the timetable matrix
-            const subSelects = document.querySelectorAll('.timetable-sub-select');
-            subSelects.forEach(subSel => {
-                const slot = subSel.getAttribute('data-slot');
-                const day = subSel.getAttribute('data-day');
-                const teacherSel = document.querySelector(`.timetable-teacher-select[data-slot="${slot}"][data-day="${day}"]`);
-                
-                const subVal = subSel.value || '';
-                const teacherVal = teacherSel ? teacherSel.value : '';
-                
-                if (subVal || teacherVal) {
-                    currentMatrix[`${slot}_${day}`] = `${subVal}|${teacherVal}`;
-                }
-            });
-
-            matrices[grade] = currentMatrix;
-            saveData('sys_timetable_matrices', matrices);
-            showToast(`បានរក្សាទុកកាលវិភាគថ្នាក់ទី ${grade} ជោគជ័យ!`);
         }
 
         function applyScheduleTemplate(shift) {
@@ -2525,10 +2470,21 @@
                     sendTelegramMessage(msg, l.grade);
                     sentCount++;
                     if (sentCount === filtered.length) {
-                        showToast(`បានផ្ញើសារដំណឹងវត្តមានទៅ Telegram អាណាព្យាបាលចំនួន ${sentCount} សាររួចរាល់!`);
+                        showToast(`ផ្ញើសារទៅ Telegram អាណាព្យាបាលចំនួន ${sentCount} ករណី រួចរាល់!`);
                     }
-                }, index * 300); // 300ms delay between calls to comply with Telegram API rate limits
+                }, index * 1200);
             });
+        }
+
+        function populateTelegramInputs() {
+            const tgConfig = getData('sys_tg_config', {});
+            const tokenEl = document.getElementById('tg-bot-token');
+            const chatEl = document.getElementById('tg-chat-id');
+            const enableEl = document.getElementById('tg-enable');
+            
+            if (tokenEl) tokenEl.value = tgConfig.botToken || '';
+            if (chatEl) chatEl.value = tgConfig.chatId || '';
+            if (enableEl) enableEl.checked = !!tgConfig.enable;
         }
 
         function renderClassTelegramInputs() {
@@ -2614,6 +2570,11 @@
                 document.getElementById('sys-teacher-username').value = creds.teacherUser;
                 document.getElementById('sys-teacher-password').value = creds.teacherPass;
             }
+            
+            // Pre-render Class Telegram Inputs & Populate Telegram Bot Token/Chat ID
+            populateTelegramInputs();
+            renderClassTelegramInputs();
+
             const session = getData('sys_session', null);
             if (session) loginSuccess(session);
         };
